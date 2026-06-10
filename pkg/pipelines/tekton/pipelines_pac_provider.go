@@ -53,7 +53,7 @@ func (pp *PipelinesProvider) ConfigurePAC(ctx context.Context, f fn.Function, me
 	}
 
 	if data.ConfigureLocalResources {
-		if err := pp.createLocalPACResources(ctx, f); err != nil {
+		if err := pp.createLocalPACResources(ctx, f, namespace); err != nil {
 			return err
 		}
 	}
@@ -78,7 +78,7 @@ func (pp *PipelinesProvider) ConfigurePAC(ctx context.Context, f fn.Function, me
 	}
 
 	if data.ConfigureClusterResources {
-		if err := pp.createClusterPACResources(ctx, f, data); err != nil {
+		if err := pp.createClusterPACResources(ctx, f, namespace, data); err != nil {
 			return err
 		}
 	}
@@ -124,7 +124,7 @@ func (pp *PipelinesProvider) RemovePAC(ctx context.Context, f fn.Function, metad
 
 // createLocalPACResources creates necessary local resources in .tekton directory:
 // Pipeline and PipelineRun templates
-func (pp *PipelinesProvider) createLocalPACResources(ctx context.Context, f fn.Function) error {
+func (pp *PipelinesProvider) createLocalPACResources(ctx context.Context, f fn.Function, namespace string) error {
 	// let's specify labels that will be applied to every resource that is created for a Pipeline
 	labels, err := f.LabelsMap()
 	if err != nil {
@@ -139,7 +139,7 @@ func (pp *PipelinesProvider) createLocalPACResources(ctx context.Context, f fn.F
 		return err
 	}
 
-	err = createPipelineRunTemplatePAC(f, labels)
+	err = createPipelineRunTemplatePAC(f, namespace, labels)
 	if err != nil {
 		return err
 	}
@@ -150,12 +150,7 @@ func (pp *PipelinesProvider) createLocalPACResources(ctx context.Context, f fn.F
 // createClusterPACResources create resources on cluster, it tries to detect PAC installation,
 // creates necessary secret with image registry credentials and git credentials (access tokens, webhook secrets),
 // also creates PVC for the function source code
-func (pp *PipelinesProvider) createClusterPACResources(ctx context.Context, f fn.Function, metadata pipelines.PacMetadata) error {
-	namespace := f.Namespace
-	if namespace == "" {
-		namespace = f.Deploy.Namespace
-	}
-
+func (pp *PipelinesProvider) createClusterPACResources(ctx context.Context, f fn.Function, namespace string, metadata pipelines.PacMetadata) error {
 	// figure out pac installation namespace
 	installed, _, err := pac.DetectPACInstallation(ctx)
 	if !installed {

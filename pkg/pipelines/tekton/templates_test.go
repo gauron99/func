@@ -3,6 +3,7 @@ package tekton
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 	"text/template"
 
@@ -152,7 +153,7 @@ func Test_createPipelineRunTemplatePAC(t *testing.T) {
 			f.Image = "docker.io/alice/" + f.Name
 			f.Registry = TestRegistry
 
-			err = createPipelineRunTemplatePAC(f, make(map[string]string))
+			err = createPipelineRunTemplatePAC(f, "test-ns", make(map[string]string))
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createPipelineRunTemplate() error = %v, wantErr %v", err, tt.wantErr)
@@ -455,4 +456,123 @@ func TestPipelineRunTemplatesValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNamespaceParamPlumbing renders every pipeline and run template and
+// asserts the target-namespace parameter is threaded end to end: declared on
+// the Pipeline, mapped into the build task's NAMESPACE param, and supplied a
+// value by both the standard and PAC PipelineRuns. The namespace must reach
+// the on-cluster deploy step as a parameter of the deployment request, not
+// via the func.yaml of the built source (git builds may not commit one).
+func TestNamespaceParamPlumbing(t *testing.T) {
+	data := templateData{
+		FunctionName:  "myfunc",
+		ContextDir:    ".",
+		FunctionImage: "docker.io/alice/myfunc",
+		Registry:      "docker.io/alice",
+		BuilderImage:  "gcr.io/paketo-buildpacks/builder:base",
+		BuildEnvs:     []string{"="},
+
+		PipelineName:    "myfunc-pipeline",
+		PipelineRunName: "myfunc-pipeline-run-",
+		PvcName:         "myfunc-pvc",
+		SecretName:      "myfunc-secret",
+
+		PipelinesTargetBranch: "main",
+		S2iImageScriptsUrl:    "image:///usr/libexec/s2i",
+		TlsVerify:             "true",
+		RepoUrl:               "https://example.com/repo",
+		Revision:              "main",
+		Commit:                "abc123",
+
+		FuncBuildpacksTaskRef: "taskRef:\n        name: func-buildpacks",
+		FuncS2iTaskRef:        "taskRef:\n        name: func-s2i",
+
+		Namespace: "pipeline-target-ns",
+	}
+
+	decode := strictTektonDecoder(t)
+
+	t.Run("pipelines declare and map the param", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			tmplStr string
+		}{
+			{"packPipelineTemplate", packPipelineTemplate},
+			{"s2iPipelineTemplate", s2iPipelineTemplate},
+		} {
+			rendered := renderTemplate(t, tt.name, tt.tmplStr, data)
+			obj, _, err := decode.Decode(rendered, nil, nil)
+			if err != nil {
+				t.Fatalf("%s: failed to decode Pipeline: %v", tt.name, err)
+			}
+			p, ok := obj.(*tektonv1.Pipeline)
+			if !ok {
+				t.Fatalf("%s: expected *Pipeline, got %T", tt.name, obj)
+			}
+			declared := false
+			for _, par := range p.Spec.Params {
+				if par.Name == "namespace" {
+					declared = true
+				}
+			}
+			if !declared {
+				t.Errorf("%s: pipeline does not declare the namespace param", tt.name)
+			}
+			mapped := false
+			for _, task := range p.Spec.Tasks {
+				for _, par := range task.Params {
+					if par.Name == "NAMESPACE" && par.Value.StringVal == "$(params.namespace)" {
+						mapped = true
+					}
+				}
+			}
+			if !mapped {
+				t.Errorf("%s: build task does not map NAMESPACE from $(params.namespace)", tt.name)
+			}
+		}
+	})
+
+	t.Run("runs supply the value", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			tmplStr string
+		}{
+			{"packRunTemplate", packRunTemplate},
+			{"packRunTemplatePAC", packRunTemplatePAC},
+			{"s2iRunTemplate", s2iRunTemplate},
+			{"s2iRunTemplatePAC", s2iRunTemplatePAC},
+		} {
+			rendered := renderTemplate(t, tt.name, tt.tmplStr, data)
+			obj, _, err := decode.Decode(rendered, nil, nil)
+			if err != nil {
+				t.Fatalf("%s: failed to decode PipelineRun: %v", tt.name, err)
+			}
+			pr, ok := obj.(*tektonv1.PipelineRun)
+			if !ok {
+				t.Fatalf("%s: expected *PipelineRun, got %T", tt.name, obj)
+			}
+			found := false
+			for _, par := range pr.Spec.Params {
+				if par.Name == "namespace" && par.Value.StringVal == "pipeline-target-ns" {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s: run does not supply the namespace param value", tt.name)
+			}
+		}
+	})
+
+	t.Run("tasks expose the param to the deploy step", func(t *testing.T) {
+		for _, task := range []string{getBuildpackTask(), getS2ITask()} {
+			if !strings.Contains(task, "name: NAMESPACE") {
+				t.Error("task does not declare the NAMESPACE param")
+			}
+			if !strings.Contains(task, "FUNC_DEPLOY_NAMESPACE") ||
+				!strings.Contains(task, "$(params.NAMESPACE)") {
+				t.Error("func-deploy step does not receive FUNC_DEPLOY_NAMESPACE from the param")
+			}
+		}
+	})
 }

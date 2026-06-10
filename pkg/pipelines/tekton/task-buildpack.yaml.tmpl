@@ -37,6 +37,9 @@ spec:
     - name: SOURCE_SUBPATH
       description: A subpath within the "source" input where the source to build is located.
       default: ""
+    - name: NAMESPACE
+      description: Namespace into which the function is deployed.
+      default: ""
     - name: ENV_VARS
       type: array
       description: Environment variables to set during _build-time_.
@@ -300,6 +303,9 @@ spec:
     - name: func-deploy
       image: '{{.DeployerImage}}'
       workingDir: $(workspaces.source.path)
+      env:
+        - name: FUNC_DEPLOY_NAMESPACE
+          value: $(params.NAMESPACE)
       command: ["deploy", $(params.SOURCE_SUBPATH), "$(params.APP_IMAGE)"]
   volumes:
     - name: empty-dir

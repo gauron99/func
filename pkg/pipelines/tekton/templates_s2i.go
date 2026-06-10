@@ -52,6 +52,10 @@ spec:
       name: commit
       default: ''
       type: string
+    - description: Namespace into which the function is deployed
+      name: namespace
+      default: ''
+      type: string
   tasks:
     - name: build
       params:
@@ -76,6 +80,8 @@ spec:
           value: $(params.tlsVerify)
         - name: COMMIT
           value: $(params.commit)
+        - name: NAMESPACE
+          value: $(params.namespace)
       {{.FuncS2iTaskRef}}
       workspaces:
         - name: source
@@ -134,6 +140,8 @@ spec:
       value: {{.TlsVerify}}
     - name: commit
       value: "{{.Commit}}"
+    - name: namespace
+      value: "{{.Namespace}}"
   pipelineRef:
    name: {{.PipelineName}}
   workspaces:
@@ -201,6 +209,8 @@ spec:
       value: {{.S2iImageScriptsUrl}}
     - name: tlsVerify
       value: {{.TlsVerify}}
+    - name: namespace
+      value: "{{.Namespace}}"
   pipelineRef:
    name: {{.PipelineName}}
   workspaces:

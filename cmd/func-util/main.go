@@ -142,6 +142,16 @@ func deploy(ctx context.Context) error {
 		return fmt.Errorf("cannot load function: %w", err)
 	}
 
+	// The target namespace is transmitted as a pipeline parameter (surfaced
+	// as an env var on this step) so the deployment request does not depend
+	// on the namespace being present in the func.yaml of the built source --
+	// in particular for git-flavor builds, whose committed func.yaml may not
+	// record one. When unset (older task definitions), the function's own
+	// configuration applies as before.
+	if ns := os.Getenv("FUNC_DEPLOY_NAMESPACE"); ns != "" {
+		f.Namespace = ns
+	}
+
 	var digestPart string
 	if d, err := os.ReadFile(imageDigestFileName); err == nil {
 		digestPart = "@" + string(d)

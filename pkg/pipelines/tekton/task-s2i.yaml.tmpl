@@ -29,6 +29,9 @@ spec:
     - name: PATH_CONTEXT
       description: The location of the path to run s2i from.
       default: .
+    - name: NAMESPACE
+      description: Namespace into which the function is deployed.
+      default: ""
     - name: TLSVERIFY
       description: Verify the TLS on the registry endpoint (for push/pull to a non-TLS registry)
       default: "true"
@@ -148,6 +151,9 @@ spec:
     - name: func-deploy
       image: '{{.DeployerImage}}'
       workingDir: $(workspaces.source.path)
+      env:
+        - name: FUNC_DEPLOY_NAMESPACE
+          value: $(params.NAMESPACE)
       command: ["deploy", $(params.PATH_CONTEXT), "$(params.IMAGE)"]
   volumes:
     - emptyDir: {}

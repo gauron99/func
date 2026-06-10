@@ -93,6 +93,9 @@ type templateData struct {
 
 	// Git commit SHA of the function source
 	Commit string
+
+	// Namespace into which the function is deployed
+	Namespace string
 }
 
 // createPipelineTemplatePAC creates a Pipeline template used for PAC on-cluster build
@@ -140,9 +143,12 @@ func createPipelineTemplatePAC(f fn.Function, labels map[string]string) error {
 	return createResource(f.Root, pipelineFileNamePAC, template, data)
 }
 
-// createPipelineRunTemplatePAC creates a PipelineRun template used for PAC on-cluster build
-// it creates the resource in the project directory
-func createPipelineRunTemplatePAC(f fn.Function, labels map[string]string) error {
+// createPipelineRunTemplatePAC creates the PipelineRun template committed to
+// the repository. PAC runs are push-triggered with no CLI present at deploy
+// time, so the target namespace -- resolved once by the caller, and the
+// namespace the whole PAC installation (Repository CR, PVC, secrets) is
+// pinned to -- is baked in at configuration time.
+func createPipelineRunTemplatePAC(f fn.Function, namespace string, labels map[string]string) error {
 	contextDir := f.Build.Git.ContextDir
 	if contextDir == "" && f.Build.Builder == builders.S2I {
 		// TODO(lkingland): could instead update S2I to interpret empty string
@@ -203,6 +209,8 @@ func createPipelineRunTemplatePAC(f fn.Function, labels map[string]string) error
 
 		S2iImageScriptsUrl: s2iImageScriptsUrl,
 		TlsVerify:          tlsVerify,
+
+		Namespace: namespace,
 
 		RepoUrl:  "\"{{ repo_url }}\"",
 		Revision: "\"{{ revision }}\"",
@@ -409,6 +417,7 @@ func createAndApplyPipelineRunTemplate(f fn.Function, namespace string, labels m
 		S2iImageScriptsUrl: s2iImageScriptsUrl,
 		TlsVerify:          tlsVerify,
 		Commit:             commit,
+		Namespace:          namespace,
 
 		RepoUrl:  f.Build.Git.URL,
 		Revision: pipelinesTargetBranch,

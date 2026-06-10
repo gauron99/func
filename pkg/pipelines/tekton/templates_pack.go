@@ -44,6 +44,10 @@ spec:
       name: commit
       default: ''
       type: string
+    - description: Namespace into which the function is deployed
+      name: namespace
+      default: ''
+      type: string
   tasks:
     - name: build
       params:
@@ -64,6 +68,8 @@ spec:
             - '$(params.buildEnvs[*])'
         - name: COMMIT
           value: $(params.commit)
+        - name: NAMESPACE
+          value: $(params.namespace)
         {{- if eq .TlsVerify "false"}}
         - name: INSECURE_REGISTRIES
           value: $(params.registry)
@@ -123,6 +129,8 @@ spec:
         {{end}}
     - name: commit
       value: "{{.Commit}}"
+    - name: namespace
+      value: "{{.Namespace}}"
   pipelineRef:
    name: {{.PipelineName}}
   workspaces:
@@ -183,6 +191,8 @@ spec:
         {{range .BuildEnvs -}}
            - {{.}}
         {{end}}
+    - name: namespace
+      value: "{{.Namespace}}"
   pipelineRef:
    name: {{.PipelineName}}
   workspaces:
