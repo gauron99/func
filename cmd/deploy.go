@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -281,6 +282,10 @@ func runDeploy(cmd *cobra.Command, newClient ClientFactory) (err error) {
 	if f, err = cfg.function(cmd.Context(), local); err != nil {
 		return
 	}
+	if f.Root == "" {
+		cfg = cfg.withFunctionDefaults(cmd, f)
+	}
+	source := cfg.gitSource()
 
 	// Now that we know function exists, proceed with prompting
 	if cfg, err = cfg.Prompt(f); err != nil {
@@ -292,11 +297,13 @@ func runDeploy(cmd *cobra.Command, newClient ClientFactory) (err error) {
 	if err = cfg.Validate(cmd); err != nil {
 		return wrapValidateError(err, "deploy")
 	}
-	// The prompt may have made the source a git repository
-	if cfg.Remote && cfg.Source != "" && f.Root != "" {
+	// The prompt may have chosen a git repository as the source, or another
+	// one than the function was read from.
+	if cfg.Remote && cfg.Source != "" && (f.Root != "" || cfg.gitSource() != source) {
 		if f, err = cfg.function(cmd.Context(), local); err != nil {
 			return
 		}
+		cfg = cfg.withFunctionDefaults(cmd, f)
 	}
 
 	// Warn if registry changed but registryInsecure is still true
@@ -482,6 +489,72 @@ func (c deployConfig) function(ctx context.Context, local fn.Function) (fn.Funct
 		return local, NewErrNotInitializedFromPath(local.Root, "deploy")
 	}
 	return local, nil
+}
+
+// withFunctionDefaults returns the config with the defaults it would have had
+// if f were the function in the current directory when the command was
+// built: the values NewDeployCmd registers as flag defaults from the function
+// with context, for every flag the user did not set on the command line or in
+// the environment. It is used when the function comes from a git repository,
+// which is known only at run time, so that its func.yaml is honoured the same
+// way a local one is.
+func (c deployConfig) withFunctionDefaults(cmd *cobra.Command, f fn.Function) deployConfig {
+	global, err := config.NewDefault()
+	if err != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "error loading config at '%v'. %v\n", config.File(), err)
+	}
+	global = global.Apply(f)
+
+	unset := func(flag string) bool {
+		_, env := os.LookupEnv("FUNC_" + strings.ToUpper(strings.ReplaceAll(flag, "-", "_")))
+		return !cmd.Flags().Changed(flag) && !env
+	}
+	if unset("builder") {
+		c.Builder = global.Builder
+	}
+	if unset("deployer") {
+		c.Deployer = global.Deployer
+	}
+	if unset("registry") {
+		c.Registry = global.Registry
+	}
+	if unset("registry-insecure") {
+		c.RegistryInsecure = global.RegistryInsecure
+	}
+	if unset("builder-image") {
+		c.BuilderImage = f.Build.BuilderImages[c.Builder]
+	}
+	if unset("base-image") {
+		c.BaseImage = f.Build.BaseImage
+	}
+	if unset("image") {
+		c.Image = f.Image
+	}
+	if unset("domain") {
+		c.Domain = f.Domain
+	}
+	if unset("remote-storage-class") {
+		c.RemoteStorageClass = f.Build.RemoteStorageClass
+	}
+	if unset("pvc-size") {
+		c.PVCSize = f.Build.PVCSize
+	}
+	if unset("service-account") {
+		c.ServiceAccountName = f.Deploy.ServiceAccountName
+	}
+	if unset("image-pull-secret") {
+		c.ImagePullSecret = f.Deploy.ImagePullSecret
+	}
+	if unset("expose") {
+		c.Expose = f.Expose
+	}
+	if unset("namespace") {
+		c.Namespace = defaultNamespace(f, c.Verbose)
+	}
+	if unset("management-disabled") {
+		c.ManagementDisabled = f.Deploy.ManagementDisabled
+	}
+	return c
 }
 
 // gitSource is the git repository to build from, as configured: the URL

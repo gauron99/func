@@ -660,6 +660,60 @@ func TestDeploy_RemoteGitUsesRepositoryFunction(t *testing.T) {
 	}
 }
 
+// TestDeploy_RemoteGitDefaultsFromRepository ensures the flag defaults come
+// from the repository's func.yaml, as they come from a local func.yaml, with
+// flags and environment variables still taking precedence. The command's
+// flag defaults were derived from the (here empty) current directory.
+func TestDeploy_RemoteGitDefaultsFromRepository(t *testing.T) {
+	_ = FromTempDirectory(t)
+	url, _ := ServeGitRepository(t, map[string]map[string]string{
+		"main": {"func.yaml": funcYAML("remote-fn", `registry: example.com/repo
+deployer: raw
+build:
+  builder: s2i
+deploy:
+  namespace: repo-ns
+  serviceAccountName: repo-sa
+`)},
+	})
+
+	deploy := func(t *testing.T, args ...string) fn.Function {
+		t.Helper()
+		var deployed fn.Function
+		pipeliner := mock.NewPipelinesProvider()
+		base := pipeliner.RunFn
+		pipeliner.RunFn = func(f fn.Function) (string, fn.Function, error) {
+			deployed = f
+			return base(f)
+		}
+		cmd := NewDeployCmd(NewTestClient(fn.WithPipelinesProvider(pipeliner), fn.WithRegistry(TestRegistry)))
+		cmd.SetArgs(append([]string{"--remote", "--source=" + url}, args...))
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return deployed
+	}
+
+	// Nothing set: the repository's values apply
+	f := deploy(t)
+	if f.Build.Builder != "s2i" || f.Registry != "example.com/repo" || f.Deployer != "raw" ||
+		f.Deploy.ServiceAccountName != "repo-sa" || f.Namespace != "repo-ns" {
+		t.Errorf("expected the repository's func.yaml to provide the defaults, got builder=%q registry=%q deployer=%q sa=%q namespace=%q",
+			f.Build.Builder, f.Registry, f.Deployer, f.Deploy.ServiceAccountName, f.Namespace)
+	}
+
+	// Flags and environment variables win over the repository
+	t.Setenv("FUNC_DEPLOYER", "knative")
+	f = deploy(t, "--builder=pack", "--registry=example.com/flag", "--namespace=flag-ns")
+	if f.Build.Builder != "pack" || f.Registry != "example.com/flag" || f.Deployer != "knative" || f.Namespace != "flag-ns" {
+		t.Errorf("expected flags and env to win, got builder=%q registry=%q deployer=%q namespace=%q",
+			f.Build.Builder, f.Registry, f.Deployer, f.Namespace)
+	}
+	if f.Deploy.ServiceAccountName != "repo-sa" {
+		t.Errorf("expected the untouched service account to stay the repository's, got %q", f.Deploy.ServiceAccountName)
+	}
+}
+
 // TestDeploy_RemoteGitLoadError ensures a repository the function cannot be
 // read from fails the deployment before any pipeline is run.
 func TestDeploy_RemoteGitLoadError(t *testing.T) {
