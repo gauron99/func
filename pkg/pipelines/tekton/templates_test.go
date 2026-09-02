@@ -318,6 +318,35 @@ var testData = []struct {
 	},
 }
 
+// Test_createAndApplyPipelineRunTemplate_NoRoot ensures a function loaded
+// from a git repository, which has no Root, yields a Pipeline and a
+// PipelineRun: nothing is read from a project directory in that case.
+func Test_createAndApplyPipelineRunTemplate_NoRoot(t *testing.T) {
+	old := manifestivalClient
+	defer func() { manifestivalClient = old }()
+	manifestivalClient = func() (manifestival.Client, error) {
+		return fake.New(), nil
+	}
+
+	f := fn.Function{
+		Name:     "remote-fn",
+		Runtime:  "go",
+		Registry: TestRegistry,
+		Build: fn.BuildSpec{
+			Builder: builders.Pack,
+			Source:  fn.Source{URL: "https://example.com/alice/remote-fn.git", Revision: "main"},
+		},
+	}
+	f.Deploy.Image = "docker.io/alice/remote-fn"
+
+	if err := createAndApplyPipelineTemplate(f, "test-ns", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := createAndApplyPipelineRunTemplate(f, "test-ns", nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func Test_createAndApplyPipelineRunTemplate(t *testing.T) {
 	for _, tt := range testData {
 		t.Run(tt.name, func(t *testing.T) {

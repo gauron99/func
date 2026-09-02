@@ -154,12 +154,12 @@ func runRun(cmd *cobra.Command, newClient ClientFactory) (err error) {
 		cfg runConfig
 		f   fn.Function
 	)
-	if cfg, err = newRunConfig(cmd).Prompt(); err != nil {
-		return wrapPromptError(err, "run")
-	}
-
+	cfg = newRunConfig(cmd)
 	if f, err = fn.NewFunction(cfg.Path); err != nil {
 		return
+	}
+	if cfg, err = cfg.Prompt(f); err != nil {
+		return wrapPromptError(err, "run")
 	}
 	if !f.Initialized() {
 		return NewErrNotInitializedFromPath(f.Root, "run")
@@ -371,10 +371,10 @@ func (c runConfig) Configure(f fn.Function) (fn.Function, error) {
 	return f, err
 }
 
-func (c runConfig) Prompt() (runConfig, error) {
+func (c runConfig) Prompt(f fn.Function) (runConfig, error) {
 	var err error
 
-	if c.buildConfig, err = c.buildConfig.Prompt(); err != nil {
+	if c.buildConfig, err = c.buildConfig.Prompt(f); err != nil {
 		return c, err
 	}
 

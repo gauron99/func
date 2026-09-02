@@ -451,12 +451,13 @@ func createAndApplyPipelineRunTemplate(f fn.Function, namespace string, labels m
 var manifestivalClient = k8s.GetManifestivalClient
 
 // createAndApplyResource tries to create and apply a resource to the k8s cluster from the input template and data,
-// if there's the same resource already created in the project directory, it is used instead
+// if there's the same resource already created in the project directory, it is used instead.
+// An empty projectRoot (a function loaded from git) has no such directory.
 func createAndApplyResource(projectRoot, fileName, fileTemplate, kind, resourceName, namespace string, data interface{}) error {
 	var source manifestival.Source
 
 	filePath := path.Join(projectRoot, resourcesDirectory, fileName)
-	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+	if _, err := os.Stat(filePath); projectRoot != "" && !os.IsNotExist(err) {
 		source = manifestival.Path(filePath)
 	} else {
 		tmpl, err := template.New("template").Parse(fileTemplate)
