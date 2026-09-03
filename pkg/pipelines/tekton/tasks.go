@@ -3,7 +3,6 @@ package tekton
 import (
 	"bytes"
 	_ "embed"
-	"strings"
 	"text/template"
 )
 
@@ -36,14 +35,6 @@ func getBuildpackTask() string {
 
 func getS2ITask() string {
 	return getTask(s2iTaskTemplate)
-}
-
-// GetClusterTasks returns multi-document yaml containing tekton tasks used by func.
-func GetClusterTasks() string {
-	tasks := getBuildpackTask() + "\n---\n" + getS2ITask()
-	tasks = strings.ReplaceAll(tasks, "kind: Task", "kind: ClusterTask")
-	tasks = strings.ReplaceAll(tasks, "apiVersion: tekton.dev/v1", "apiVersion: tekton.dev/v1beta1")
-	return tasks
 }
 
 func getTask(t string) string {
