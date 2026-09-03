@@ -225,7 +225,7 @@ A first-time deploy can be detected by checking the func.yaml for a value in the
 - **BEFORE calling:** Read `func://help/config/git/set` or `func://help/config/git/remove`
 - Both tools require the `path` parameter (absolute path to the Function directory)
 - `config_git_set` — configures Git source repository settings for pipeline-based builds:
-  - **REQUIRED:** `git_url` (repository URL) and `git_branch` (branch or tag, e.g. `main`)
+  - **REQUIRED:** `git_url` (repository URL) and `git_revision` (the branch whose pushes trigger a build, e.g. `main`)
   - **OPTIONAL:** `git_dir` (subdirectory in the repo; defaults to repository root when omitted)
   - **OPTIONAL:** `git_provider` (auto-detected from URL; override only if detection fails)
   - **OPTIONAL:** `config_local`, `config_cluster`, `config_remote` (boolean flags to control which pipeline resources are created; defaults to local-only when none are specified)

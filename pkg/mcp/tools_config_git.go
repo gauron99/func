@@ -26,7 +26,7 @@ var configGitSetTool = &mcp.Tool{
 
 // ConfigGitSetInput defines the input for the config_git_set tool.
 //
-// git-url and git-branch are required; the CLI will prompt interactively
+// git-url and git-revision are required; the CLI will prompt interactively
 // for any missing values, which hangs in a non-TTY subprocess.
 //
 // git-dir defaults to "." (repository root) when not provided, preventing
@@ -37,7 +37,7 @@ var configGitSetTool = &mcp.Tool{
 type ConfigGitSetInput struct {
 	Path          string  `json:"path"                     jsonschema:"required,Absolute path to the Function project directory"`
 	GitURL        string  `json:"git_url"                  jsonschema:"required,URL of the Git repository containing the Function source code"`
-	GitBranch     string  `json:"git_branch"               jsonschema:"required,Git branch or tag to build from (e.g. main)"`
+	GitRevision   string  `json:"git_revision"             jsonschema:"required,Git branch whose pushes Pipelines-as-Code builds and deploys (e.g. main)"`
 	GitDir        *string `json:"git_dir,omitempty"        jsonschema:"Subdirectory within the repository where the Function source is located (default: repository root)"`
 	GitProvider   *string `json:"git_provider,omitempty"   jsonschema:"Git platform provider for webhook setup; usually auto-detected from the URL (e.g. github, gitlab, gitea)"`
 	ConfigLocal   *bool   `json:"config_local,omitempty"   jsonschema:"Create local pipeline template files in the Function directory (default: true when no config flags are set)"`
@@ -51,7 +51,7 @@ func (i ConfigGitSetInput) Args() []string {
 	args := []string{"git", "set", "--path", i.Path}
 
 	args = append(args, "--git-url", i.GitURL)
-	args = append(args, "--git-branch", i.GitBranch)
+	args = append(args, "--git-revision", i.GitRevision)
 
 	// Always pass --git-dir to prevent the interactive prompt.
 	// Default to "." (repository root) when not provided or when provided as
@@ -92,8 +92,8 @@ func (s *Server) configGitSetHandler(ctx context.Context, r *mcp.CallToolRequest
 		err = fmt.Errorf("'git_url' is required")
 		return
 	}
-	if input.GitBranch == "" {
-		err = fmt.Errorf("'git_branch' is required")
+	if input.GitRevision == "" {
+		err = fmt.Errorf("'git_revision' is required")
 		return
 	}
 

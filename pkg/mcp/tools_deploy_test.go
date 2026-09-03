@@ -47,7 +47,7 @@ func TestTool_Deploy_Args(t *testing.T) {
 		"image":              {"image", "--image", "ghcr.io/user/my-func:latest"},
 		"namespace":          {"namespace", "--namespace", "prod"},
 		"gitUrl":             {"gitUrl", "--git-url", "https://github.com/user/repo"},
-		"gitBranch":          {"gitBranch", "--git-branch", "main"},
+		"gitRevision":        {"gitRevision", "--git-revision", "main"},
 		"gitDir":             {"gitDir", "--git-dir", "functions/my-func"},
 		"builderImage":       {"builderImage", "--builder-image", "custom-builder:latest"},
 		"domain":             {"domain", "--domain", "example.com"},

@@ -555,7 +555,7 @@ func TestDeploy_GitArgsPersist(t *testing.T) {
 		fn.WithPipelinesProvider(mock.NewPipelinesProvider()),
 		fn.WithRegistry(TestRegistry),
 	))
-	cmd.SetArgs([]string{"--remote", "--git-url=" + url, "--git-branch=" + branch, "--git-dir=" + dir, "."})
+	cmd.SetArgs([]string{"--remote", "--git-url=" + url, "--git-revision=" + branch, "--git-dir=" + dir, "."})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -614,14 +614,14 @@ func TestDeploy_GitArgsUsed(t *testing.T) {
 		fn.WithRegistry(TestRegistry),
 	))
 
-	cmd.SetArgs([]string{"--remote=true", "--git-url=" + url, "--git-branch=" + branch, "--git-dir=" + dir})
+	cmd.SetArgs([]string{"--remote=true", "--git-url=" + url, "--git-revision=" + branch, "--git-dir=" + dir})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // TestDeploy_GitURLBranch ensures that a --git-url which specifies the branch
-// in the URL is equivalent to providing --git-branch
+// in the URL is equivalent to providing --git-revision
 func TestDeploy_GitURLBranch(t *testing.T) {
 	root := FromTempDirectory(t)
 

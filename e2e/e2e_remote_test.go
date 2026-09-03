@@ -102,7 +102,7 @@ func TestRemote_Ref(t *testing.T) {
 	// Trigger the deploy
 	if err := newCmd(t, "deploy", "--remote",
 		"--git-url", "https://github.com/functions-dev/func-e2e-tests",
-		"--git-branch", name,
+		"--git-revision", name,
 		"--registry", Registry,
 		"--builder", "pack",
 		"--build",

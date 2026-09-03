@@ -17,10 +17,10 @@ func TestTool_ConfigGitSet_Args(t *testing.T) {
 		flag    string
 		value   string
 	}{
-		"path":       {"path", "--path", "/home/user/myfunc"},
-		"git_url":    {"git_url", "--git-url", "https://github.com/user/repo"},
-		"git_branch": {"git_branch", "--git-branch", "main"},
-		"git_dir":    {"git_dir", "--git-dir", "functions/myfunc"},
+		"path":         {"path", "--path", "/home/user/myfunc"},
+		"git_url":      {"git_url", "--git-url", "https://github.com/user/repo"},
+		"git_revision": {"git_revision", "--git-revision", "main"},
+		"git_dir":      {"git_dir", "--git-dir", "functions/myfunc"},
 	}
 
 	boolFlags := map[string]string{
@@ -42,7 +42,7 @@ func TestTool_ConfigGitSet_Args(t *testing.T) {
 			t.Fatalf("expected args[1]='set', got %q", args[1])
 		}
 
-		// After "git set": --path, path, --git-url, url, --git-branch, branch, --git-dir, dir = 8 args
+		// After "git set": --path, path, --git-url, url, --git-revision, revision, --git-dir, dir = 8 args
 		// + --config-local (1) + --verbose (1) = 10 args after "git set"
 		remaining := args[2:]
 		validateStringFlags(t, remaining, stringFlags)
@@ -97,9 +97,9 @@ func TestTool_ConfigGitSet_DefaultGitDir(t *testing.T) {
 	result, err := client.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "config_git_set",
 		Arguments: map[string]any{
-			"path":       "/home/user/myfunc",
-			"git_url":    "https://github.com/user/repo",
-			"git_branch": "main",
+			"path":         "/home/user/myfunc",
+			"git_url":      "https://github.com/user/repo",
+			"git_revision": "main",
 		},
 	})
 	if err != nil {
@@ -131,9 +131,9 @@ func TestTool_ConfigGitSet_AntiHang_ConfigLocal(t *testing.T) {
 	result, err := client.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "config_git_set",
 		Arguments: map[string]any{
-			"path":       "/home/user/myfunc",
-			"git_url":    "https://github.com/user/repo",
-			"git_branch": "main",
+			"path":         "/home/user/myfunc",
+			"git_url":      "https://github.com/user/repo",
+			"git_revision": "main",
 		},
 	})
 	if err != nil {
@@ -161,8 +161,8 @@ func TestTool_ConfigGitSet_MissingGitURL(t *testing.T) {
 	result, err := client.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "config_git_set",
 		Arguments: map[string]any{
-			"path":       "/home/user/myfunc",
-			"git_branch": "main",
+			"path":         "/home/user/myfunc",
+			"git_revision": "main",
 		},
 	})
 	// The MCP SDK validates required schema fields before calling the handler,
@@ -175,12 +175,12 @@ func TestTool_ConfigGitSet_MissingGitURL(t *testing.T) {
 	}
 }
 
-// TestTool_ConfigGitSet_MissingGitBranch ensures that omitting git_branch
+// TestTool_ConfigGitSet_MissingGitRevision ensures that omitting git_revision
 // returns an error without invoking the executor.
-func TestTool_ConfigGitSet_MissingGitBranch(t *testing.T) {
+func TestTool_ConfigGitSet_MissingGitRevision(t *testing.T) {
 	executor := mock.NewExecutor()
 	executor.ExecuteFn = func(ctx context.Context, subcommand string, args ...string) ([]byte, error) {
-		t.Fatal("executor should not be called when git_branch is missing")
+		t.Fatal("executor should not be called when git_revision is missing")
 		return nil, nil
 	}
 
@@ -202,7 +202,7 @@ func TestTool_ConfigGitSet_MissingGitBranch(t *testing.T) {
 		return
 	}
 	if !result.IsError {
-		t.Fatal("expected error result when git_branch is missing")
+		t.Fatal("expected error result when git_revision is missing")
 	}
 }
 
@@ -221,9 +221,9 @@ func TestTool_ConfigGitSet_Error(t *testing.T) {
 	result, err := client.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "config_git_set",
 		Arguments: map[string]any{
-			"path":       "/home/user/myfunc",
-			"git_url":    "https://github.com/user/repo",
-			"git_branch": "main",
+			"path":         "/home/user/myfunc",
+			"git_url":      "https://github.com/user/repo",
+			"git_revision": "main",
 		},
 	})
 	if err != nil {

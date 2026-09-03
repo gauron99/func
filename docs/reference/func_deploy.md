@@ -10,7 +10,7 @@ NAME
 
 SYNOPSIS
 	func deploy [-R|--remote] [-r|--registry] [-i|--image] [-n|--namespace]
-	             [-e|--env] [-g|--git-url] [-t|--git-branch] [-d|--git-dir]
+	             [-e|--env] [-g|--git-url] [-t|--git-revision] [-d|--git-dir]
 	             [-b|--build] [--builder] [--builder-image] [-p|--push]
 	             [--domain] [--platform] [--build-timestamp] [--pvc-size]
 	             [--service-account] [-c|--confirm] [-v|--verbose]
@@ -130,8 +130,8 @@ func deploy
       --domain string                 Domain to use for the function's route.  Cluster must be configured with domain matching for the given domain (ignored if unrecognized) ($FUNC_DOMAIN)
   -e, --env stringArray               Environment variable to set in the form NAME=VALUE. You may provide this flag multiple times for setting multiple environment variables. To unset, specify the environment variable name followed by a "-" (e.g., NAME-).
       --expose string                 External exposure mode: 'route' for an OpenShift Route (OpenShift clusters only), 'none' for cluster-local. Default: no exposure. Raw and keda deployers only. ($FUNC_EXPOSE)
-  -t, --git-branch string             Git revision (branch) to be used when deploying via the Git repository ($FUNC_GIT_BRANCH)
   -d, --git-dir string                Directory in the Git repository containing the function (default is the root) ($FUNC_GIT_DIR)
+  -t, --git-revision string           Git revision (branch, tag or commit) to be used when deploying via the Git repository ($FUNC_GIT_REVISION)
   -g, --git-url string                Repository url containing the function to build ($FUNC_GIT_URL)
   -h, --help                          help for deploy
   -i, --image string                  Full image name in the form [registry]/[namespace]/[name]:[tag]@[digest]. This option takes precedence over --registry. Specifying digest is optional, but if it is given, 'build' and 'push' phases are disabled. ($FUNC_IMAGE)

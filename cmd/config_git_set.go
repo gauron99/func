@@ -25,7 +25,7 @@ func NewConfigGitSetCmd(newClient ClientFactory) *cobra.Command {
 	directory or from the directory specified with --path.
 	`,
 		SuggestFor: []string{"add", "ad", "update", "create", "insert", "append"},
-		PreRunE:    bindEnv("path", "builder", "builder-image", "image", "registry", "git-provider", "git-url", "git-branch", "git-dir", "gh-access-token", "config-local", "config-cluster", "config-remote"),
+		PreRunE:    bindEnv("path", "builder", "builder-image", "image", "registry", "git-provider", "git-url", "git-revision", "git-dir", "gh-access-token", "config-local", "config-cluster", "config-remote"),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			return runConfigGitSetCmd(cmd, newClient)
 		},
@@ -68,8 +68,15 @@ func NewConfigGitSetCmd(newClient ClientFactory) *cobra.Command {
 		fmt.Sprintf("The type of the Git platform provider to setup webhook. This value is usually automatically generated from input URL, use this parameter to override this setting. Currently supported providers are %s.", git.SupportedProvidersList.PrettyString()))
 	cmd.Flags().StringP("git-url", "g", "",
 		"Repository url containing the function to build ($FUNC_GIT_URL)")
-	cmd.Flags().StringP("git-branch", "t", "",
-		"Git revision (branch) to be used when deploying via the Git repository ($FUNC_GIT_BRANCH)")
+	// TODO: this is not a revision. Pipelines-as-Code matches it against the
+	// ref of each push (a branch name, or a pattern such as refs/tags/*), so
+	// it is a trigger filter, and the commit to build comes from the push
+	// event. It shares build.git.revision with deploy's --git-revision, which
+	// names one commit to build now, only because both are persisted in the
+	// same key. It should become a value of its own, and the PAC deploy step
+	// should take the revision it stamps from the event, not from func.yaml.
+	cmd.Flags().StringP("git-revision", "t", "",
+		"Git branch whose pushes Pipelines-as-Code builds and deploys ($FUNC_GIT_REVISION)")
 	cmd.Flags().StringP("git-dir", "d", "",
 		"Directory in the Git repository containing the function (default is the root) ($FUNC_GIT_DIR)")
 
@@ -127,7 +134,7 @@ func newConfigGitSetConfig(_ *cobra.Command) (c configGitSetConfig) {
 		buildConfig: newBuildConfig(),
 
 		GitURL:        viper.GetString("git-url"),
-		GitRevision:   viper.GetString("git-branch"),
+		GitRevision:   viper.GetString("git-revision"),
 		GitContextDir: viper.GetString("git-dir"),
 
 		ConfigureRemoteResourcesSet: configRemoteSet,
@@ -272,7 +279,7 @@ func (c configGitSetConfig) Configure(f fn.Function) (fn.Function, error) {
 	// Configure basic members
 	f.Build.Git.URL = c.GitURL
 	f.Build.Git.ContextDir = c.GitContextDir
-	f.Build.Git.Revision = c.GitRevision // TODO: should match; perhaps "refSpec"
+	f.Build.Git.Revision = c.GitRevision
 
 	// Save the function which has now been updated with flags/config
 	if err = f.Write(); err != nil { // TODO: remove when client API uses 'f'
