@@ -609,25 +609,36 @@ func TestDeploy_RemoteGitNoLocalFunction(t *testing.T) {
 	}
 }
 
-// TestDeploy_RemoteGitUsesRepositoryFunction ensures that, when a local
-// function exists alongside a remote deployment of a git repository, the
-// pipeline is created for the function as committed in the repository,
-// while the local function records the request and the outcome.
-func TestDeploy_RemoteGitUsesRepositoryFunction(t *testing.T) {
+// TestDeploy_RemoteGitWritesNothing ensures a remote deployment of a git
+// repository is a deployment by reference: the pipeline is created for the
+// function as committed in the repository, and whatever function is in the
+// current directory, even a copy of the same one, is neither written to nor
+// marked as built.
+func TestDeploy_RemoteGitWritesNothing(t *testing.T) {
 	root := FromTempDirectory(t)
-	url := serveFunction(t, "remote-fn")
+	// Only the repository's copy of my-fn has this environment variable
+	url, _ := ServeGitRepository(t, map[string]map[string]string{
+		"main": {"func.yaml": funcYAML("my-fn", `run:
+  envs:
+  - name: REPO_ONLY
+    value: "yes"
+`)},
+	})
 
-	if _, err := fn.New().Init(fn.Function{Name: "local-fn", Runtime: "node", Root: root}); err != nil {
+	if _, err := fn.New().Init(fn.Function{Name: "my-fn", Runtime: "go", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(root, fn.FunctionFile))
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	pipeliner := mock.NewPipelinesProvider()
-	var deployed fn.Function // as returned by the pipeline: the outcome
+	var deployed fn.Function
 	base := pipeliner.RunFn
 	pipeliner.RunFn = func(f fn.Function) (string, fn.Function, error) {
-		url, f, err := base(f)
 		deployed = f
-		return url, f, err
+		return base(f)
 	}
 	cmd := NewDeployCmd(NewTestClient(
 		fn.WithPipelinesProvider(pipeliner),
@@ -638,25 +649,22 @@ func TestDeploy_RemoteGitUsesRepositoryFunction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if deployed.Name != "remote-fn" || deployed.Runtime != "go" {
-		t.Errorf("expected the repository's function to be deployed, got %q (%v)", deployed.Name, deployed.Runtime)
+	if len(deployed.Run.Envs) != 1 {
+		t.Errorf("expected the repository's function to be deployed, got envs %v", deployed.Run.Envs)
 	}
-
+	after, err := os.ReadFile(filepath.Join(root, fn.FunctionFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("expected the local function to be untouched, got:\n%s", after)
+	}
 	local, err := fn.NewFunction(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if local.Name != "local-fn" || local.Runtime != "node" {
-		t.Errorf("expected the local function's metadata to be untouched, got %q (%v)", local.Name, local.Runtime)
-	}
-	if local.Build.Source.URL != url {
-		t.Errorf("expected the git source to be recorded locally, got %q", local.Build.Source.URL)
-	}
-	if local.Deploy.Namespace != "fnns" {
-		t.Errorf("expected the deployed namespace to be recorded locally, got %q", local.Deploy.Namespace)
-	}
-	if local.Deploy.Image != deployed.Deploy.Image || local.Deploy.Image == "" {
-		t.Errorf("expected the deployed image %q to be recorded locally, got %q", deployed.Deploy.Image, local.Deploy.Image)
+	if local.Built() {
+		t.Error("expected the local sources, which were not built, not to be stamped as built")
 	}
 }
 
@@ -732,63 +740,29 @@ func TestDeploy_RemoteGitLoadError(t *testing.T) {
 	}
 }
 
-// TestDeploy_RemoteSourcePersists ensures that the source flags, if provided,
-// are persisted to the Function for subsequent deployments.
-func TestDeploy_RemoteSourcePersists(t *testing.T) {
-	root := FromTempDirectory(t)
-
-	var (
-		branch = "main"
-		dir    = "function"
-	)
-	url, _ := ServeGitRepository(t, map[string]map[string]string{
-		"main": {"function/func.yaml": funcYAML("repo-fn", "")},
-	})
-
-	// Create a new Function in the temp directory
-	f, err := fn.New().Init(fn.Function{Runtime: "go", Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Deploy the Function specifying all of the source flags
-	cmd := NewDeployCmd(NewTestClient(
-		fn.WithPipelinesProvider(mock.NewPipelinesProvider()),
-		fn.WithRegistry(TestRegistry),
-	))
-	cmd.SetArgs([]string{"--remote", "--source=" + url, "--revision=" + branch, "--source-dir=" + dir, "."})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Load the Function and ensure the flags were stored.
-	f, err = fn.NewFunction(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := (fn.Source{URL: url, Revision: branch, Dir: dir}); f.Build.Source != want {
-		t.Errorf("expected source %+v persisted, got %+v", want, f.Build.Source)
-	}
-}
-
 // TestDeploy_RemoteSourceEnv ensures the source flags are also read from
 // their environment variables, FUNC_SOURCE, FUNC_REVISION and
-// FUNC_SOURCE_DIR.
+// FUNC_SOURCE_DIR: the function is read from the repository they name.
 func TestDeploy_RemoteSourceEnv(t *testing.T) {
-	root := FromTempDirectory(t)
-
-	if _, err := fn.New().Init(fn.Function{Runtime: "go", Root: root}); err != nil {
-		t.Fatal(err)
-	}
-	url, _ := ServeGitRepository(t, map[string]map[string]string{
+	_ = FromTempDirectory(t)
+	// Only the named branch and directory hold a function named repo-fn
+	url, heads := ServeGitRepository(t, map[string]map[string]string{
+		"main":    {"func.yaml": funcYAML("root-fn", "")},
 		"release": {"function/func.yaml": funcYAML("repo-fn", "")},
 	})
 	t.Setenv("FUNC_SOURCE", url)
 	t.Setenv("FUNC_REVISION", "release")
 	t.Setenv("FUNC_SOURCE_DIR", "function")
 
+	pipeliner := mock.NewPipelinesProvider()
+	var deployed fn.Function
+	base := pipeliner.RunFn
+	pipeliner.RunFn = func(f fn.Function) (string, fn.Function, error) {
+		deployed = f
+		return base(f)
+	}
 	cmd := NewDeployCmd(NewTestClient(
-		fn.WithPipelinesProvider(mock.NewPipelinesProvider()),
+		fn.WithPipelinesProvider(pipeliner),
 		fn.WithRegistry(TestRegistry),
 	))
 	cmd.SetArgs([]string{"--remote"})
@@ -796,13 +770,9 @@ func TestDeploy_RemoteSourceEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f, err := fn.NewFunction(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := fn.Source{URL: url, Revision: "release", Dir: "function"}
-	if f.Build.Source != want {
-		t.Errorf("expected source %+v from the environment, got %+v", want, f.Build.Source)
+	want := fn.Source{URL: url, Revision: "release", Dir: "function", Commit: heads["release"]}
+	if deployed.Name != "repo-fn" || deployed.Build.Source != want {
+		t.Errorf("expected repo-fn read from %+v (the environment), got %q from %+v", want, deployed.Name, deployed.Build.Source)
 	}
 }
 
@@ -863,15 +833,11 @@ func TestDeploy_RemoteSourceUsed(t *testing.T) {
 	}
 }
 
-// TestDeploy_RemoteSourceFragment ensures that a --source which specifies the branch
-// in the URL is equivalent to providing --revision
+// TestDeploy_RemoteSourceFragment ensures that a --source which specifies the
+// branch in the URL is equivalent to providing --revision: the function is
+// read from, and the pipeline builds, the repository at that branch.
 func TestDeploy_RemoteSourceFragment(t *testing.T) {
-	root := FromTempDirectory(t)
-
-	f, err := fn.New().Init(fn.Function{Runtime: "go", Root: root})
-	if err != nil {
-		t.Fatal(err)
-	}
+	_ = FromTempDirectory(t)
 
 	// Only the branch named in the fragment holds a function named repo-fn
 	expectedUrl, _ := ServeGitRepository(t, map[string]map[string]string{
@@ -890,12 +856,10 @@ func TestDeploy_RemoteSourceFragment(t *testing.T) {
 		return base(f)
 	}
 	cmd := NewDeployCmd(NewTestClient(
-		fn.WithDeployer(mock.NewDeployer()),
-		fn.WithBuilder(mock.NewBuilder()),
 		fn.WithPipelinesProvider(pipeliner),
 		fn.WithRegistry(TestRegistry),
 	))
-	cmd.SetArgs([]string{"--remote", "--source=" + url})
+	cmd.SetArgs([]string{"--remote", "--source=" + url, "--namespace=fnns"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -903,16 +867,8 @@ func TestDeploy_RemoteSourceFragment(t *testing.T) {
 	if deployed.Name != "repo-fn" {
 		t.Errorf("expected the function to be read from %q at %q, got %q", expectedUrl, expectedBranch, deployed.Name)
 	}
-
-	f, err = fn.NewFunction(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.Build.Source.URL != expectedUrl {
-		t.Errorf("expected git URL '%v' got '%v'", expectedUrl, f.Build.Source.URL)
-	}
-	if f.Build.Source.Revision != expectedBranch {
-		t.Errorf("expected git branch '%v' got '%v'", expectedBranch, f.Build.Source.Revision)
+	if deployed.Build.Source.URL != expectedUrl || deployed.Build.Source.Revision != expectedBranch {
+		t.Errorf("expected the pipeline to build %q at %q, got %+v", expectedUrl, expectedBranch, deployed.Build.Source)
 	}
 }
 
@@ -2089,37 +2045,37 @@ func TestDeploy_UnsetFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Deploy it, specifying a Git URL
-	url := serveFunction(t, "f")
-	cmd := NewDeployCmd(NewTestClient())
-	cmd.SetArgs([]string{"--remote", "--source=" + url})
+	// Deploy it, specifying a domain
+	client := NewTestClient(fn.WithDeployer(mock.NewDeployer()), fn.WithBuilder(mock.NewBuilder()), fn.WithRegistry(TestRegistry))
+	cmd := NewDeployCmd(client)
+	cmd.SetArgs([]string{"--domain=example.com"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Load the function and confirm the URL was persisted
+	// Load the function and confirm the domain was persisted
 	f, err = fn.NewFunction(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Build.Source.URL != url {
-		t.Fatalf("url not persisted")
+	if f.Domain != "example.com" {
+		t.Fatalf("domain not persisted")
 	}
 
 	// Deploy it again, unsetting the value
-	cmd = NewDeployCmd(NewTestClient())
-	cmd.SetArgs([]string{"--source="})
+	cmd = NewDeployCmd(client)
+	cmd.SetArgs([]string{"--domain="})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Load the function and confirm the URL was unset
+	// Load the function and confirm the domain was unset
 	f, err = fn.NewFunction(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Build.Source.URL != "" {
-		t.Fatalf("url not cleared")
+	if f.Domain != "" {
+		t.Fatalf("domain not cleared")
 	}
 }
 
@@ -3282,7 +3238,6 @@ func TestDeploy_RemoteExposeRecordsObservation(t *testing.T) {
 			root := FromTempDirectory(t)
 			cleanup := k8s.SetOpenShiftForTest(true, nil)
 			defer cleanup()
-			url := serveFunction(t, "repo-fn")
 
 			if _, err := fn.New().Init(fn.Function{Runtime: "go", Root: root}); err != nil {
 				t.Fatal(err)
@@ -3308,9 +3263,7 @@ func TestDeploy_RemoteExposeRecordsObservation(t *testing.T) {
 			var out bytes.Buffer
 			cmd.SetOut(&out)
 			cmd.SetErr(&out)
-			cmd.SetArgs([]string{"--remote",
-				"--source=" + url,
-				"--deployer=raw", "--expose=route"})
+			cmd.SetArgs([]string{"--remote", "--deployer=raw", "--expose=route"})
 			if err := cmd.Execute(); err != nil {
 				t.Fatal(err)
 			}

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -85,7 +84,9 @@ DESCRIPTION
 	  A branch, tag or commit is given with '--revision':
 	  '{{rootCmdUse}} deploy --remote --source=git.example.com/alice/f.git --revision=v1.2.0'
 	  The function is then read from the repository, so no local copy is
-	  needed.  Choose the directory within the repository with '--source-dir'.
+	  needed, and nothing is written locally: to change the function, clone
+	  the repository, edit it and deploy the working tree.  Choose the
+	  directory within the repository with '--source-dir'.
 
 	Domain
 	  When deploying, a function's route is automatically generated using the
@@ -266,24 +267,16 @@ EXAMPLES
 
 func runDeploy(cmd *cobra.Command, newClient ClientFactory) (err error) {
 	var (
-		cfg   deployConfig
-		f     fn.Function // the function to deploy
-		local fn.Function // the function at cfg.Path, if any
+		cfg deployConfig
+		f   fn.Function
 	)
 
 	// Initialize config first
 	cfg = newDeployConfig(cmd)
 
-	// Load the function at path. It is the function to deploy unless the
-	// source is a git repository, in which case it only records the outcome.
-	if local, err = fn.NewFunction(cfg.Path); err != nil {
+	// Load the function to deploy
+	if f, cfg, err = cfg.loadFunction(cmd); err != nil {
 		return
-	}
-	if f, err = cfg.function(cmd.Context(), local); err != nil {
-		return
-	}
-	if f.Root == "" {
-		cfg = cfg.withFunctionDefaults(cmd, f)
 	}
 	source := cfg.gitSource()
 
@@ -300,10 +293,9 @@ func runDeploy(cmd *cobra.Command, newClient ClientFactory) (err error) {
 	// The prompt may have chosen a git repository as the source, or another
 	// one than the function was read from.
 	if cfg.Remote && cfg.Source != "" && (f.Root != "" || cfg.gitSource() != source) {
-		if f, err = cfg.function(cmd.Context(), local); err != nil {
+		if f, cfg, err = cfg.loadFunction(cmd); err != nil {
 			return
 		}
-		cfg = cfg.withFunctionDefaults(cmd, f)
 	}
 
 	// Warn if registry changed but registryInsecure is still true
@@ -447,23 +439,12 @@ func runDeploy(cmd *cobra.Command, newClient ClientFactory) (err error) {
 	}
 
 	// Write
-	// A function deployed from a git repository has no working tree of its own.
-	// A local function at path, if there is one, records the request and the
-	// outcome so that later commands (describe, delete, another deploy) find
-	// them; its own metadata is left alone.
+	// A function deployed from a git repository is deployed by reference:
+	// nothing is written, neither to the repository nor to whatever is in the
+	// current directory. To change such a function, clone the repository,
+	// edit it and deploy the working tree.
 	if f.Root == "" {
-		if !local.Initialized() {
-			return nil
-		}
-		if local, err = cfg.Configure(local); err != nil {
-			return
-		}
-		local.Registry = f.Registry
-		local.Deploy.Image = f.Deploy.Image
-		local.Deploy.Namespace = f.Deploy.Namespace
-		local.Deploy.Deployer = f.Deploy.Deployer
-		local.Deploy.Expose = f.Deploy.Expose
-		f = local
+		return nil
 	}
 	if err = f.Write(); err != nil {
 		return
@@ -476,19 +457,28 @@ func runDeploy(cmd *cobra.Command, newClient ClientFactory) (err error) {
 	return f.Stamp()
 }
 
-// function returns the function to deploy. When a git repository is the
+// loadFunction returns the function to deploy, and the config completed
+// with the defaults that function provides. When a git repository is the
 // source of a remote deployment it is the function committed there: the
-// pipeline must describe what the cluster builds, and a local checkout may
-// be absent, on another branch or in another directory. Otherwise it is the
-// given local function, which must be initialized.
-func (c deployConfig) function(ctx context.Context, local fn.Function) (fn.Function, error) {
+// pipeline must describe what the cluster builds, and the current directory
+// plays no part. Otherwise it is the function at the path, which must be
+// initialized.
+func (c deployConfig) loadFunction(cmd *cobra.Command) (fn.Function, deployConfig, error) {
 	if c.Remote && c.Source != "" {
-		return fn.NewFunctionFromGit(ctx, c.gitSource())
+		f, err := fn.NewFunctionFromGit(cmd.Context(), c.gitSource())
+		if err != nil {
+			return f, c, err
+		}
+		return f, c.withFunctionDefaults(cmd, f), nil
 	}
-	if !local.Initialized() {
-		return local, NewErrNotInitializedFromPath(local.Root, "deploy")
+	f, err := fn.NewFunction(c.Path)
+	if err != nil {
+		return f, c, err
 	}
-	return local, nil
+	if !f.Initialized() {
+		return f, c, NewErrNotInitializedFromPath(f.Root, "deploy")
+	}
+	return f, c, nil
 }
 
 // withFunctionDefaults returns the config with the defaults it would have had
@@ -1023,17 +1013,10 @@ func printDeployMessages(out io.Writer, f fn.Function) {
 	// current invocation is not remote.  (providing Git attributes directly
 	// via flags without --remote will error elsewhere).
 	//
-	// When invoking a remote build with --remote, the --git-X arguments
-	// are persisted to the local function's source code such that the reference
-	// is retained.  Subsequent runs of deploy then need not have these arguments
-	// present.
-	//
-	// However, when building _locally_ thereafter, the deploy command should
-	// prefer the local source code, ignoring the values for --source etc.
-	// Since this might be confusing, a warning is issued below that the local
-	// function source does include a reference to a git repository, but that it
-	// will be ignored in favor of the local source code since --remote was not
-	// specified.
+	// A func.yaml may carry source settings (build.source), which then serve
+	// as the defaults of the --source flags. When building _locally_, the deploy
+	// command uses the local source code and ignores them. Since this might be
+	// confusing, a warning is issued below.
 	if !f.Local.Remote && (f.Build.Source.URL != "" || f.Build.Source.Revision != "" || f.Build.Source.Dir != "") {
 		fmt.Fprintf(out, "Warning: source settings are only applicable when running with --remote.  Local source code will be used.")
 	}

@@ -60,7 +60,9 @@ DESCRIPTION
 	  A branch, tag or commit is given with '--revision':
 	  'func deploy --remote --source=git.example.com/alice/f.git --revision=v1.2.0'
 	  The function is then read from the repository, so no local copy is
-	  needed.  Choose the directory within the repository with '--source-dir'.
+	  needed, and nothing is written locally: to change the function, clone
+	  the repository, edit it and deploy the working tree.  Choose the
+	  directory within the repository with '--source-dir'.
 
 	Domain
 	  When deploying, a function's route is automatically generated using the
