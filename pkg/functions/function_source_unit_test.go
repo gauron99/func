@@ -78,6 +78,22 @@ func Test_validateSource(t *testing.T) {
 			Source{},
 			0,
 		},
+		{
+			"correct 'Source - URL + full commit",
+			Source{
+				URL:    "https://myrepo/foo.git",
+				Commit: "0123456789abcdef0123456789abcdef01234567",
+			},
+			0,
+		},
+		{
+			"incorrect 'Source - abbreviated commit",
+			Source{
+				URL:    "https://myrepo/foo.git",
+				Commit: "0123456",
+			},
+			1,
+		},
 	}
 
 	for _, tt := range tests {

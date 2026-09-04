@@ -18,6 +18,13 @@ type Source struct {
 	// Dir is the directory within the repository holding the function.
 	// Empty means the repository root.
 	Dir string `yaml:"dir,omitempty"`
+
+	// Commit is the full hash Revision resolved to when the function was read
+	// from its repository, in memory only, never stored. The cluster then
+	// fetches and labels the image with exactly this commit. Empty for a local
+	// or uploaded source, which the builders label from the git working tree
+	// on disk: its HEAD, marked dirty when there are uncommitted changes.
+	Commit string `yaml:"-" json:"-"`
 }
 
 // validateSource validates the source option from Function config
@@ -37,5 +44,22 @@ func validateSource(source Source) (errors []string) {
 			errors = append(errors, errMsg)
 		}
 	}
+	if source.Commit != "" && !isFullHash(source.Commit) {
+		errors = append(errors, fmt.Sprintf("source commit %q is not a full commit hash", source.Commit))
+	}
 	return
+}
+
+// isFullHash reports whether s is a full commit hash: 40 lowercase
+// hexadecimal digits, as git and go-git print one.
+func isFullHash(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
 }

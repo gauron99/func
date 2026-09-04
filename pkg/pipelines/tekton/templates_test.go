@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/manifestival/manifestival"
 	"github.com/manifestival/manifestival/fake"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
@@ -344,6 +347,70 @@ func Test_createAndApplyPipelineRunTemplate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_sourceRevision ensures a function read from its repository makes the
+// cluster fetch, and label the image with, the commit it was read at, while
+// any other function keeps the configured revision and the local HEAD.
+func Test_sourceRevision(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+
+	f := fn.Function{Build: fn.BuildSpec{Source: fn.Source{URL: "https://example.com/repo.git", Revision: "main", Commit: hash}}}
+	if fetch, label := sourceRevision(f); fetch != hash || label != hash[:7] {
+		t.Errorf("read from git: expected %q, %q; got %q, %q", hash, hash[:7], fetch, label)
+	}
+
+	f = fn.Function{Build: fn.BuildSpec{Source: fn.Source{URL: "https://example.com/repo.git", Revision: "v1"}}}
+	if fetch, _ := sourceRevision(f); fetch != "v1" {
+		t.Errorf("git without a resolved commit: expected the revision as configured, got %q", fetch)
+	}
+
+	f = fn.Function{Root: t.TempDir()} // no git history, no repository
+	if fetch, label := sourceRevision(f); fetch != "" || label != "" {
+		t.Errorf("upload without history: expected \"\", \"\"; got %q, %q", fetch, label)
+	}
+
+	// A commit shorter than the label (validation rejects it; a caller may
+	// skip validation) must not panic.
+	f = fn.Function{Build: fn.BuildSpec{Source: fn.Source{URL: "https://example.com/repo.git", Commit: "abc"}}}
+	if fetch, label := sourceRevision(f); fetch != "abc" || label != "abc" {
+		t.Errorf("short commit: expected \"abc\", \"abc\"; got %q, %q", fetch, label)
+	}
+
+	// With no Root there is no working tree to label from, even when func
+	// runs inside some unrelated repository.
+	t.Chdir(gitRepoWithCommit(t))
+	f = fn.Function{Build: fn.BuildSpec{Source: fn.Source{URL: "https://example.com/repo.git", Revision: "v1"}}}
+	if fetch, label := sourceRevision(f); fetch != "v1" || label != "" {
+		t.Errorf("rootless without a commit: expected \"v1\", \"\"; got %q, %q", fetch, label)
+	}
+}
+
+// gitRepoWithCommit returns a new directory holding a git repository with
+// one commit.
+func gitRepoWithCommit(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = wt.Add("README.md"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = wt.Commit("initial", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // strictTektonDecoder returns a strict deserializer that rejects unknown fields

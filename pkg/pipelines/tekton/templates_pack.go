@@ -107,7 +107,7 @@ spec:
     - name: gitRepository
       value: "{{.RepoUrl}}"
     - name: gitRevision
-      value: {{.Revision}}
+      value: "{{.Revision}}"
     - name: contextDir
       value: "{{.ContextDir}}"
     - name: imageName

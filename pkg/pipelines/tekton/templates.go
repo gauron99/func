@@ -347,6 +347,31 @@ func createAndApplyPipelineTemplate(f fn.Function, namespace string, labels map[
 	return createAndApplyResource(f.Root, pipelineFileName, template, "pipeline", getPipelineName(f), namespace, data)
 }
 
+// sourceRevision returns what the cluster fetches and what it labels the
+// image with. A function read from its repository has the commit it was
+// read at, so the cluster fetches exactly that. Anything else is fetched by
+// the revision as configured, the remote's default branch when empty, and
+// labelled from the git working tree on disk if it has one, HEAD marked
+// dirty when there are uncommitted changes, as every builder labels a local
+// source.
+func sourceRevision(f fn.Function) (fetch, label string) {
+	if c := f.Build.Source.Commit; c != "" {
+		// validateSource requires a full hash; the guard spares a caller that
+		// skipped validation a panic.
+		label = c
+		if len(label) > 7 {
+			label = label[:7]
+		}
+		return c, label
+	}
+	// Only a function on disk has a working tree to label from: with no
+	// Root, GitCommit would search whichever repository func runs in.
+	if f.Root != "" {
+		label, _ = fn.GitCommit(f.Root)
+	}
+	return f.Build.Source.Revision, label
+}
+
 // createAndApplyPipelineRunTemplate creates and applies PipelineRun template for a standard on-cluster build
 // all resources are created on the fly, if there's a PipelineRun defined in the project directory, it is used instead
 func createAndApplyPipelineRunTemplate(f fn.Function, namespace string, labels map[string]string) error {
@@ -355,11 +380,6 @@ func createAndApplyPipelineRunTemplate(f fn.Function, namespace string, labels m
 		// TODO(lkingland): could instead update S2I to interpret empty string
 		// as cwd, such that builder-specific code can be kept out of here.
 		contextDir = "."
-	}
-
-	pipelinesTargetBranch := f.Build.Source.Revision
-	if pipelinesTargetBranch == "" {
-		pipelinesTargetBranch = defaultPipelinesTargetBranch
 	}
 
 	buildEnvs := []string{}
@@ -389,7 +409,7 @@ func createAndApplyPipelineRunTemplate(f fn.Function, namespace string, labels m
 		tlsVerify = "false"
 	}
 
-	commit, _ := fn.GitCommit(f.Root)
+	fetch, label := sourceRevision(f)
 
 	data := templateData{
 		FunctionName:  f.Name,
@@ -408,10 +428,10 @@ func createAndApplyPipelineRunTemplate(f fn.Function, namespace string, labels m
 
 		S2iImageScriptsUrl: s2iImageScriptsUrl,
 		TlsVerify:          tlsVerify,
-		Commit:             commit,
+		Commit:             label,
 
 		RepoUrl:  f.Build.Source.URL,
-		Revision: pipelinesTargetBranch,
+		Revision: fetch,
 	}
 
 	var template string
