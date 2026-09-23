@@ -62,7 +62,10 @@ DESCRIPTION
 	  The function is then read from the repository, so no local copy is
 	  needed, and nothing is written locally: to change the function, clone
 	  the repository, edit it and deploy the working tree.  Choose the
-	  directory within the repository with '--source-dir'.
+	  directory within the repository with '--source-dir'.  The function is
+	  deployed as configured by the func.yaml committed there: of the flags
+	  which configure a function, only '--registry' and '--registry-insecure'
+	  apply.
 
 	Domain
 	  When deploying, a function's route is automatically generated using the

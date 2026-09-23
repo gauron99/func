@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/AlecAivazis/survey/v2/core"
 	"github.com/ory/viper"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"knative.dev/func/pkg/builders"
 	"knative.dev/func/pkg/config"
@@ -582,14 +584,13 @@ func TestDeploy_RemoteGitNoLocalFunction(t *testing.T) {
 	cmd.SetArgs([]string{"--remote",
 		"--source=" + url,
 		"--revision=feature",
-		"--source-dir=functions/remote-fn",
-		"--namespace=fnns"})
+		"--source-dir=functions/remote-fn"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 
-	// The pipeline received the function from the repository, configured
-	// by the flags, and builds the commit it was read at
+	// The pipeline received the function from the repository and builds the
+	// commit it was read at
 	want := fn.Source{URL: url, Revision: "feature", Dir: "functions/remote-fn", Commit: heads["feature"]}
 	if !pipeliner.RunInvoked {
 		t.Fatal("pipeline was not invoked")
@@ -600,8 +601,8 @@ func TestDeploy_RemoteGitNoLocalFunction(t *testing.T) {
 	if deployed.Root != "" {
 		t.Errorf("expected no root, got %q", deployed.Root)
 	}
-	if deployed.Namespace != "fnns" || deployed.Build.Source != want {
-		t.Errorf("expected flags to configure the deployed function, got %+v", deployed)
+	if deployed.Build.Source != want {
+		t.Errorf("expected source %+v, got %+v", want, deployed.Build.Source)
 	}
 	// Nothing was written locally
 	if _, err := os.Stat(filepath.Join(root, fn.FunctionFile)); !os.IsNotExist(err) {
@@ -644,7 +645,7 @@ func TestDeploy_RemoteGitWritesNothing(t *testing.T) {
 		fn.WithPipelinesProvider(pipeliner),
 		fn.WithRegistry(TestRegistry),
 	))
-	cmd.SetArgs([]string{"--remote", "--source=" + url, "--namespace=fnns"})
+	cmd.SetArgs([]string{"--remote", "--source=" + url})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -668,22 +669,31 @@ func TestDeploy_RemoteGitWritesNothing(t *testing.T) {
 	}
 }
 
-// TestDeploy_RemoteGitDefaultsFromRepository ensures the flag defaults come
-// from the repository's func.yaml, as they come from a local func.yaml, with
-// flags and environment variables still taking precedence. The command's
-// flag defaults were derived from the (here empty) current directory.
+// TestDeploy_RemoteGitDefaultsFromRepository ensures the function is deployed
+// as configured by the repository's func.yaml, except for the registry (and
+// whether it is insecure) given as a flag or environment variable, and that
+// the settings it leaves empty default as for any function. The function in
+// the current directory, from which the command's flag defaults were derived,
+// plays no part.
 func TestDeploy_RemoteGitDefaultsFromRepository(t *testing.T) {
-	_ = FromTempDirectory(t)
+	root := FromTempDirectory(t)
 	url, _ := ServeGitRepository(t, map[string]map[string]string{
 		"main": {"func.yaml": funcYAML("remote-fn", `registry: example.com/repo
-deployer: raw
 build:
   builder: s2i
+  pvcSize: 2Gi
 deploy:
   namespace: repo-ns
-  serviceAccountName: repo-sa
 `)},
+		"bare": {"func.yaml": funcYAML("bare-fn", "")},
 	})
+	if _, err := fn.New().Init(fn.Function{Name: "local-fn", Runtime: "go", Root: root,
+		Registry:  "example.com/local",
+		Namespace: "local-ns",
+		Build:     fn.BuildSpec{Builder: "s2i", PVCSize: "5Gi"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	deploy := func(t *testing.T, args ...string) fn.Function {
 		t.Helper()
@@ -702,23 +712,68 @@ deploy:
 		return deployed
 	}
 
-	// Nothing set: the repository's values apply
-	f := deploy(t)
-	if f.Build.Builder != "s2i" || f.Registry != "example.com/repo" || f.Deployer != "raw" ||
-		f.Deploy.ServiceAccountName != "repo-sa" || f.Namespace != "repo-ns" {
-		t.Errorf("expected the repository's func.yaml to provide the defaults, got builder=%q registry=%q deployer=%q sa=%q namespace=%q",
-			f.Build.Builder, f.Registry, f.Deployer, f.Deploy.ServiceAccountName, f.Namespace)
+	// The repository's values apply
+	f := deploy(t, "--revision=main")
+	if f.Name != "remote-fn" || f.Build.Builder != "s2i" || f.Registry != "example.com/repo" ||
+		f.Build.PVCSize != "2Gi" || f.Namespace != "repo-ns" {
+		t.Errorf("expected the repository's func.yaml to configure the function, got name=%q builder=%q registry=%q pvc=%q namespace=%q",
+			f.Name, f.Build.Builder, f.Registry, f.Build.PVCSize, f.Namespace)
 	}
 
-	// Flags and environment variables win over the repository
-	t.Setenv("FUNC_DEPLOYER", "knative")
-	f = deploy(t, "--builder=pack", "--registry=example.com/flag", "--namespace=flag-ns")
-	if f.Build.Builder != "pack" || f.Registry != "example.com/flag" || f.Deployer != "knative" || f.Namespace != "flag-ns" {
-		t.Errorf("expected flags and env to win, got builder=%q registry=%q deployer=%q namespace=%q",
-			f.Build.Builder, f.Registry, f.Deployer, f.Namespace)
+	// Empty settings default as for any function, not to the local function's
+	f = deploy(t, "--revision=bare")
+	if f.Build.Builder != builders.Default || f.Build.PVCSize != "" || f.Registry == "example.com/local" || f.Namespace == "local-ns" {
+		t.Errorf("expected the defaults of a function, got builder=%q pvc=%q registry=%q namespace=%q",
+			f.Build.Builder, f.Build.PVCSize, f.Registry, f.Namespace)
 	}
-	if f.Deploy.ServiceAccountName != "repo-sa" {
-		t.Errorf("expected the untouched service account to stay the repository's, got %q", f.Deploy.ServiceAccountName)
+
+	// The registry may be given as an environment variable or a flag
+	t.Setenv("FUNC_REGISTRY", "example.com/env")
+	if f = deploy(t, "--revision=main"); f.Registry != "example.com/env" {
+		t.Errorf("expected the registry from the environment, got %q", f.Registry)
+	}
+	if f = deploy(t, "--revision=main", "--registry=example.com/flag"); f.Registry != "example.com/flag" {
+		t.Errorf("expected the registry from the flag, got %q", f.Registry)
+	}
+	if f = deploy(t, "--revision=main", "--registry-insecure"); !f.RegistryInsecure {
+		t.Error("expected the registry to be insecure, as the flag says")
+	}
+}
+
+// TestDeploy_RemoteGitRejectsFlags ensures that a deployment from a git
+// repository takes none of the flags which configure the function, whether
+// given as a flag or an environment variable: the function is deployed as
+// committed, so they fail the deployment instead of being dropped.
+func TestDeploy_RemoteGitRejectsFlags(t *testing.T) {
+	_ = FromTempDirectory(t)
+	url := serveFunction(t, "remote-fn")
+
+	var rejected []string
+	NewDeployCmd(NewTestClient()).Flags().VisitAll(func(fl *pflag.Flag) {
+		if !slices.Contains(gitFlags, fl.Name) {
+			rejected = append(rejected, fl.Name)
+		}
+	})
+	for _, flag := range rejected {
+		t.Run(flag, func(t *testing.T) {
+			pipeliner := mock.NewPipelinesProvider()
+			cmd := NewDeployCmd(NewTestClient(fn.WithPipelinesProvider(pipeliner), fn.WithRegistry(TestRegistry)))
+			cmd.SetArgs([]string{"--remote", "--source=" + url, "--" + flag + "=true"})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "--"+flag+" cannot be used with --source") {
+				t.Fatalf("expected --%s to be rejected, got %v", flag, err)
+			}
+			if pipeliner.RunInvoked {
+				t.Error("pipeline should not run")
+			}
+		})
+	}
+
+	t.Setenv("FUNC_NAMESPACE", "env-ns")
+	cmd := NewDeployCmd(NewTestClient(fn.WithPipelinesProvider(mock.NewPipelinesProvider()), fn.WithRegistry(TestRegistry)))
+	cmd.SetArgs([]string{"--remote", "--source=" + url})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--namespace cannot be used with --source") {
+		t.Fatalf("expected FUNC_NAMESPACE to be rejected, got %v", err)
 	}
 }
 
@@ -859,7 +914,7 @@ func TestDeploy_RemoteSourceFragment(t *testing.T) {
 		fn.WithPipelinesProvider(pipeliner),
 		fn.WithRegistry(TestRegistry),
 	))
-	cmd.SetArgs([]string{"--remote", "--source=" + url, "--namespace=fnns"})
+	cmd.SetArgs([]string{"--remote", "--source=" + url})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -1878,6 +1933,14 @@ func TestDeploy_RemoteBuildURLPermutations(t *testing.T) {
 
 			// Assertions
 			if remote != "" && remote != "false" { // the default of "" is == false
+
+				// A function deployed from git takes no --build
+				if url != "" && build != "" {
+					if err == nil || !strings.Contains(err.Error(), "--build cannot be used with --source") {
+						t.Fatalf("expected --build to be rejected, got %v", err)
+					}
+					return
+				}
 
 				// REMOTE Assertions
 				if !pipeliner.RunInvoked { // Remote deployer should be triggered

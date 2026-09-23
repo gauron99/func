@@ -43,7 +43,7 @@ func TestRemote_Deploy(t *testing.T) {
 // TestRemote_Source ensures a remote build can be triggered which pulls
 // source from a remote repository, with no local copy of the function.
 //
-//	func deploy --remote --source={url} --registry={} --builder=pack
+//	func deploy --remote --source={url} --registry={}
 func TestRemote_Source(t *testing.T) {
 	name := "func-e2e-test-remote-source"
 	_ = fromCleanEnv(t, name)
@@ -53,7 +53,6 @@ func TestRemote_Source(t *testing.T) {
 	if err := newCmd(t, "deploy", "--remote",
 		"--source", "https://github.com/functions-dev/func-e2e-tests",
 		"--registry", Registry,
-		"--builder", "pack",
 	).Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +80,6 @@ func TestRemote_Ref(t *testing.T) {
 		"--source", "https://github.com/functions-dev/func-e2e-tests",
 		"--revision", name,
 		"--registry", Registry,
-		"--builder", "pack",
-		"--build",
 	).Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +107,6 @@ func TestRemote_Dir(t *testing.T) {
 		"--source", "https://github.com/functions-dev/func-e2e-tests",
 		"--source-dir", name,
 		"--registry", Registry,
-		"--builder", "pack",
-		"--build",
 	).Run(); err != nil {
 		t.Fatal(err)
 	}
