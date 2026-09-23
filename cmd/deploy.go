@@ -579,7 +579,10 @@ type deployConfig struct {
 	// clusters).  If not provided, the currently configured namespace will be
 	// used.  For instance, that which would be used by default by `kubectl`
 	// (~/.kube/config) in the case of Kubernetes.
-	Namespace string
+	// The survey tag routes the namespace prompt's answer here: by name alone
+	// survey would pick the embedded config.Global.Namespace, which Configure
+	// records as the namespace the function is already deployed in.
+	Namespace string `survey:"namespace"`
 
 	//Service account to be used in deployed function
 	ServiceAccountName string

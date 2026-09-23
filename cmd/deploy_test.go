@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AlecAivazis/survey/v2/core"
 	"github.com/ory/viper"
 	"github.com/spf13/cobra"
 
@@ -1097,6 +1098,28 @@ func TestDeploy_Namespace(t *testing.T) {
 	f, _ = fn.NewFunction(root)
 	if f.Deploy.Namespace != "thirdnamespace" {
 		t.Fatalf("expected namespace 'newNamespace', got '%v'", f.Deploy.Namespace)
+	}
+}
+
+// TestDeploy_NamespacePromptAnswer ensures the answer to the namespace prompt
+// (--confirm) becomes the namespace to deploy to. deployConfig shadows the
+// Namespace of its embedded config.Global, and survey matched that one by
+// name: the function was deployed to the default namespace and, deployed
+// locally, a function of the same name in the chosen namespace was removed.
+func TestDeploy_NamespacePromptAnswer(t *testing.T) {
+	cfg := deployConfig{Namespace: "default"}
+	if err := core.WriteAnswer(&cfg, "namespace", "chosen"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := cfg.Configure(fn.Function{Name: "f", Runtime: "go", Root: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Namespace != "chosen" {
+		t.Errorf("expected the answered namespace to be deployed to, got %q", f.Namespace)
+	}
+	if f.Deploy.Namespace != "" {
+		t.Errorf("expected no namespace recorded as deployed, got %q", f.Deploy.Namespace)
 	}
 }
 
