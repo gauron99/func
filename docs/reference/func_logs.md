@@ -14,8 +14,9 @@ When more than one pod is serving the function, each line is prefixed with the
 pod it came from. A function which has scaled to zero has no pods, and thus no
 logs to print.
 
-Only functions deployed with the default Knative deployer are currently
-supported.
+A function which consumes from Kafka runs the Kafka runtime in a sidecar
+container beside it. Use --sidecar kafka-runtime to print the logs of that
+sidecar rather than those of the function.
 
 
 ```
@@ -47,6 +48,9 @@ func logs --tail 20
 # Stream logs, starting with those of the last 5 minutes
 func logs -f --since 5m
 
+# Print the logs of the Kafka runtime sidecar
+func logs --sidecar kafka-runtime
+
 ```
 
 ### Options
@@ -57,6 +61,7 @@ func logs -f --since 5m
       --name string        Name of the function to get logs from ($FUNC_NAME)
   -n, --namespace string   The namespace of the function ($FUNC_NAMESPACE) (default "default")
   -p, --path string        Path to the function.  Default is current directory ($FUNC_PATH)
+      --sidecar string     Print the logs of the named sidecar container rather than those of the function, such as kafka-runtime for the Kafka runtime ($FUNC_SIDECAR)
       --since string       Return logs newer than a relative duration like 5s, 2m, or 3h. Defaults to all available logs, or to the last minute when following without --tail ($FUNC_SINCE)
       --tail int           Number of most recent log lines to return per pod. Unlimited if negative ($FUNC_TAIL) (default -1)
   -v, --verbose            Print verbose logs ($FUNC_VERBOSE)

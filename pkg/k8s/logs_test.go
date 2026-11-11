@@ -9,10 +9,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+
+	fn "knative.dev/func/pkg/functions"
 )
 
 // fake.Clientset always serves this as the content of a pod's logs.
@@ -104,6 +108,64 @@ func TestSnapshotPodLogs_NoMatchingPods(t *testing.T) {
 				t.Errorf("expected no output, got %q", out.String())
 			}
 		})
+	}
+}
+
+// TestSnapshotPodLogs_NoSuchContainer ensures that pods which match but do not
+// run the requested container at all are reported as such, rather than as the
+// absence of pods, which suggests a function which has scaled to zero.
+func TestSnapshotPodLogs_NoSuchContainer(t *testing.T) {
+	client := fake.NewClientset(runningPod("pod-a", "example.com/img:v1"), pendingPod("pod-b"))
+	opts := snapshotOpts()
+	opts.Container = "kafka-runtim"
+
+	out := &bytes.Buffer{}
+	err := snapshotPodLogs(context.Background(), client, "default", opts, out)
+
+	if err == nil || errors.Is(err, ErrNoMatchingPods) {
+		t.Fatalf("expected the missing container to be reported, got %v", err)
+	}
+	if want := `no matching pod has a container "kafka-runtim", only user-container`; err.Error() != want {
+		t.Errorf("expected %q, got %q", want, err.Error())
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no output, got %q", out.String())
+	}
+}
+
+// TestPodSelector ensures the selector matches the pods of the function the raw
+// deployer creates, whatever other labels they carry, and not those of another
+// function.
+func TestPodSelector(t *testing.T) {
+	key, value := "team", "a"
+	deployment := func(name string) map[string]string {
+		f := fn.Function{
+			Name:    name,
+			Runtime: "go",
+			Domain:  "example.com",
+			Deploy: fn.DeploySpec{
+				Image:  "example.com/img:latest",
+				Labels: []fn.Label{{Key: &key, Value: &value}},
+			},
+		}
+		labels, anns := testMeta(t, f)
+		rs, rcm, rpvc := sets.New[string](), sets.New[string](), sets.New[string]()
+		dep, err := (&Deployer{}).generateDeployment(f, "default", labels, anns, &rs, &rcm, &rpvc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dep.Spec.Template.Labels
+	}
+
+	selector, err := k8slabels.Parse(PodSelector("myfunc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod := deployment("myfunc"); !selector.Matches(k8slabels.Set(pod)) {
+		t.Errorf("expected %q to match the function's pods, labeled %v", selector, pod)
+	}
+	if pod := deployment("other"); selector.Matches(k8slabels.Set(pod)) {
+		t.Errorf("expected %q to not match the pods of another function, labeled %v", selector, pod)
 	}
 }
 

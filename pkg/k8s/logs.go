@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+
+	"knative.dev/func/pkg/k8s/labels"
 )
 
 // GetPodLogs returns logs from a specified Container in a Pod, if container is empty string,
@@ -59,6 +63,13 @@ func (e *PartialLogsError) Error() string {
 }
 
 func (e *PartialLogsError) Unwrap() error { return e.Err }
+
+// PodSelector returns the label selector which matches the pods of the function
+// of the given name deployed by the raw deployer.  The keda deployer deploys the
+// function through the raw deployer, so it matches those pods as well.
+func PodSelector(name string) string {
+	return fmt.Sprintf("%s=true,%s=%s", labels.FunctionKey, labels.FunctionNameKey, name)
+}
 
 // PodLogsOptions are the parameters of GetPodLogsBySelector.
 type PodLogsOptions struct {
@@ -129,6 +140,11 @@ func snapshotPodLogs(ctx context.Context, client kubernetes.Interface, namespace
 		}
 	}
 	if len(pods) == 0 {
+		// Pods which match but do not run the container at all have not scaled
+		// to zero: the container was misnamed.
+		if names := containerNames(list.Items); len(names) > 0 && !slices.Contains(names, opts.Container) {
+			return fmt.Errorf("no matching pod has a container %q, only %s", opts.Container, strings.Join(names, ", "))
+		}
 		return ErrNoMatchingPods
 	}
 	// Sorted such that output is deterministic when multiple pods match.
@@ -303,6 +319,19 @@ func mayReadLogs(pod corev1.Pod, containerName string) bool {
 		}
 	}
 	return false
+}
+
+// containerNames returns the names of the containers the pods declare, sorted
+// and without duplicates.
+func containerNames(pods []corev1.Pod) []string {
+	var names []string
+	for _, pod := range pods {
+		for _, ctr := range pod.Spec.Containers {
+			names = append(names, ctr.Name)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // containerImage returns the image of the given container of the pod.
